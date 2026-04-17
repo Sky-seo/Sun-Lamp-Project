@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/dashboard.css" />
+</head>
+<body>
+<main>
+
+  <div class="top-row">
+    <span class="mode-pill" id="mode-pill">LIVE</span>
+    <span class="last-update" id="last-update">—</span>
+  </div>
+
+  <div class="controls-wrap">
+    <div class="power-wrap">
+      <button class="bri-btn" id="bri-down-btn" aria-label="Decrease brightness">−</button>
+      <button class="power-btn" id="power-btn" aria-label="Toggle light">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M12 3v5"/>
+          <path d="M6.4 6.4A8 8 0 1 0 17.6 6.4"/>
+        </svg>
+      </button>
+      <button class="bri-btn" id="bri-up-btn" aria-label="Increase brightness">+</button>
+    </div>
+    <button class="live-btn" id="live-btn">sync to live</button>
+    <div class="color-row" id="color-row" style="display:none">
+      <span class="color-label">color</span>
+      <label class="color-swatch" id="color-swatch" for="color-picker"></label>
+      <input type="color" id="color-picker" value="#ffd28c" />
+    </div>
+  </div>
+
+  <div class="timeline">
+    <div class="timeline-labels">
+      <span id="sunrise-label">—</span>
+      <span id="sunset-label">—</span>
+    </div>
+    <div class="timeline-track" id="timeline-track">
+      <div class="timeline-fill" id="timeline-fill"></div>
+      <div class="timeline-dot" id="timeline-dot">
+        <span class="timeline-now" id="timeline-now">—</span>
+      </div>
+    </div>
+  </div>
+
+</main>
+<script src="/dashboard.js"></script>
+</body>
+</html>
