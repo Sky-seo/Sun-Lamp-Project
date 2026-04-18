@@ -45,6 +45,20 @@ function appendLog(entry) {
     fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + "\n");
 }
 
+// === reset log at midnight ===
+function scheduleMidnightReset() {
+    const now  = new Date();
+    const next = new Date(now);
+    next.setHours(24, 0, 0, 0);  // next 00:00:00.000
+    const msUntilMidnight = next - now;
+
+    setTimeout(function reset() {
+        fs.writeFileSync(LOG_FILE, "");
+        console.log("[midnight] weather_log.json cleared");
+        setTimeout(reset, 24 * 60 * 60 * 1000);
+    }, msUntilMidnight);
+}
+
 // === main loop ===
 async function tick() {
     try {
@@ -62,4 +76,5 @@ async function tick() {
     }
 }
 console.log(`log: ${LOG_FILE}`);
+scheduleMidnightReset();
 setInterval(tick, INTERVAL_MS);

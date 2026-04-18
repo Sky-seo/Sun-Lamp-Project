@@ -9,15 +9,18 @@
 
 /////////////////////// settings //////////////////
 const char AP_SSID[]  = "LAMP-wifi-Setup";
-const int  PIN_RESET  = 23;
+const int  PIN_RESET  = 34;
 
-const char SERVER[]   = "http://192.168.1.202:8080";  // ← 서버 PC 로컬 IP로 변경
-const char USER[]     = "user1";                      // ← 플래시 구울 때 유저 이름으로 변경
+const char SERVER[]   = "http://162.243.26.172:8500";  // ← 서버 PC 로컬 IP로 변경
+const char USER[]     = "user2";                      // ← 플래시 구울 때 유저 이름으로 변경
 
-const int  PIXEL_PIN   = 2;   // ← NeoPixel 연결 GPIO 핀
+const int  PIXEL_PIN   = 13;   // ← NeoPixel 연결 GPIO 핀
 const int  PIXEL_COUNT = 7;    // ← LED 개수
 
 const unsigned long POLL_INTERVAL = 1000;  // ms
+
+// lerp factor per 10ms tick — ~300ms to reach target
+const float ALPHA = 0.1f;
 ////////////////////////////////////////////////////
 
 
@@ -26,7 +29,12 @@ Preferences          prefs;
 WebServer            apServer(80);
 Adafruit_NeoPixel    strip(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 unsigned long        lastPoll = 0;
-////////////////////////////////////////////////////
+
+// smooth transition: current and target values (float for sub-step precision)
+float curR = 0, curG = 0, curB = 0, curBri = 0;
+float tgtR = 0, tgtG = 0, tgtB = 0, tgtBri = 0;
+
+
 
 
 /////////////////////// provisioning page //////////////////
@@ -179,21 +187,37 @@ void pollState() {
     return;
   }
 
-  bool isOn      = (bool)doc["isOn"];
-  int  r         = (int)doc["rgb"][0];
-  int  g         = (int)doc["rgb"][1];
-  int  b         = (int)doc["rgb"][2];
+  bool isOn       = (bool)doc["isOn"];
+  int  r          = (int)doc["rgb"][0];
+  int  g          = (int)doc["rgb"][1];
+  int  b          = (int)doc["rgb"][2];
   int  brightness = (int)doc["brightness"];  // 0–254
 
+  // set targets only — updateStrip() in loop() lerps toward them
   if (!isOn) {
-    strip.setBrightness(0);
+    tgtBri = 0;
   } else {
-    strip.setBrightness(brightness);
-    strip.fill(strip.Color(r, g, b));
+    tgtR   = r;
+    tgtG   = g;
+    tgtB   = b;
+    tgtBri = brightness;
   }
-  strip.show();
 
   Serial.printf("isOn=%d  rgb=(%d,%d,%d)  bri=%d\n", isOn, r, g, b, brightness);
+}
+////////////////////////////////////////////////////
+
+
+/////////////////////// smooth transition //////////////////
+void updateStrip() {
+  curR   += (tgtR   - curR)   * ALPHA;
+  curG   += (tgtG   - curG)   * ALPHA;
+  curB   += (tgtB   - curB)   * ALPHA;
+  curBri += (tgtBri - curBri) * ALPHA;
+
+  strip.setBrightness((int)curBri);
+  strip.fill(strip.Color((int)curR, (int)curG, (int)curB));
+  strip.show();
 }
 ////////////////////////////////////////////////////
 
@@ -259,6 +283,7 @@ void loop() {
     pollState();
   }
 
+  updateStrip();  // lerp current → target every tick
   delay(10);
 }
 ////////////////////////////////////////////////////

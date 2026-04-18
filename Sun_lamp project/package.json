@@ -1,0 +1,12 @@
+{
+  "name": "sun-lamp",
+  "version": "1.0.0",
+  "description": "Sun lamp controller server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

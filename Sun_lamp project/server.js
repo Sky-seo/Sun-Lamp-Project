@@ -2,12 +2,16 @@
 const http = require("http");
 const fs   = require("fs");
 const path = require("path");
-const { analyze, readLatestEntry } = require("./analyze");
+const { analyze } = require("./analyze");
 //////////////////////////////////////////////////
 
 
 // settings
-const PORT = 8080;
+const PORT = process.env.PORT || 8500;
+
+// NYC coordinates (Open-Meteo)
+const LAT = 40.7128;
+const LON = -74.0060;
 
 // manual mode: warm orange color and 5 brightness steps
 const WARM_ORANGE       = [255, 210, 140];
@@ -19,6 +23,9 @@ const USER_LIST = [
   "user1", "user2", "user3", "user4", "user5",
   "user6", "user7", "user8", "user9", "user10",
 ];
+
+// global weather cache shared across all users (same NYC weather for everyone)
+let latestWeatherEntry = null;
 
 function defaultState() {
   return {
@@ -71,11 +78,37 @@ function computeActive(state) {
 
 
 /////////////////////// weather //////////////////
+
+// fetch current weather from Open-Meteo and store in memory
+async function fetchWeather() {
+  const url = new URL("https://api.open-meteo.com/v1/forecast");
+  url.searchParams.set("latitude",  LAT);
+  url.searchParams.set("longitude", LON);
+  url.searchParams.set("current",   "weather_code");
+  url.searchParams.set("daily",     "sunrise,sunset");
+  url.searchParams.set("timezone",  "America/New_York");
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const data = await res.json();
+
+  latestWeatherEntry = {
+    timestamp:    new Date().toISOString(),
+    weather_code: data.current.weather_code,
+    sunrise:      data.daily.sunrise[0],
+    sunset:       data.daily.sunset[0],
+  };
+  log("weather fetched: code=" + latestWeatherEntry.weather_code +
+      "  sunrise=" + latestWeatherEntry.sunrise.slice(11, 16) +
+      "  sunset="  + latestWeatherEntry.sunset.slice(11, 16));
+}
+
+// apply latest weather entry to a user state
 function syncWeather(state) {
   try {
-    const entry  = readLatestEntry();
-    const result = analyze(entry);
-    state.entry         = entry;
+    if (!latestWeatherEntry) throw new Error("no weather data yet");
+    const result = analyze(latestWeatherEntry);
+    state.entry         = latestWeatherEntry;
     state.result        = result;
     state.timestamp     = new Date().toISOString();
     state.weatherStatus = "ok";
@@ -87,6 +120,14 @@ function syncWeather(state) {
   }
   computeActive(state);
 }
+
+function syncAllLiveUsers() {
+  USER_LIST.forEach(u => {
+    const s = getState(u);
+    if (s.mode === "live") syncWeather(s);
+  });
+}
+
 //////////////////////////////////////////////////
 
 
@@ -99,6 +140,13 @@ function parseUser(rawUrl) {
 // strip query string for route matching
 function parsePath(rawUrl) {
   return rawUrl.split("?")[0];
+}
+
+// serve a local static file
+function serveFile(res, fileName, contentType) {
+  const content = fs.readFileSync(path.join(__dirname, fileName), "utf8");
+  res.writeHead(200, { "Content-Type": contentType });
+  res.end(content);
 }
 
 
@@ -116,21 +164,9 @@ const server = http.createServer(async function (req, res) {
   try {
 
     // static files (no user needed)
-    if (urlPath === "/") {
-      const html = fs.readFileSync(path.join(__dirname, "dashboard.html"), "utf8");
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      return res.end(html);
-    }
-    if (urlPath === "/dashboard.css") {
-      const css = fs.readFileSync(path.join(__dirname, "dashboard.css"), "utf8");
-      res.writeHead(200, { "Content-Type": "text/css" });
-      return res.end(css);
-    }
-    if (urlPath === "/dashboard.js") {
-      const js = fs.readFileSync(path.join(__dirname, "dashboard.js"), "utf8");
-      res.writeHead(200, { "Content-Type": "text/javascript" });
-      return res.end(js);
-    }
+    if (urlPath === "/")              return serveFile(res, "dashboard.html", "text/html; charset=utf-8");
+    if (urlPath === "/dashboard.css") return serveFile(res, "dashboard.css",  "text/css");
+    if (urlPath === "/dashboard.js")  return serveFile(res, "dashboard.js",   "text/javascript");
 
     // all /api/* routes require ?user=
     const user = parseUser(req.url);
@@ -150,7 +186,7 @@ const server = http.createServer(async function (req, res) {
       return sendJSON(200, state);
     }
 
-    // button 2: cycle manual brightness
+    // button 2: cycle manual brightness up
     if (urlPath === "/api/manual" && method === "POST") {
       if (state.mode === "manual") {
         state.manualBriLevel = (state.manualBriLevel + 1) % MANUAL_BRI_LEVELS.length;
@@ -163,7 +199,7 @@ const server = http.createServer(async function (req, res) {
       return sendJSON(200, state);
     }
 
-    // dashboard - button: step manual brightness down
+    // dashboard button: step manual brightness down
     if (urlPath === "/api/manual/down" && method === "POST") {
       if (state.mode === "manual") {
         state.manualBriLevel = (state.manualBriLevel - 1 + MANUAL_BRI_LEVELS.length) % MANUAL_BRI_LEVELS.length;
@@ -197,6 +233,7 @@ const server = http.createServer(async function (req, res) {
 
     // force weather refresh
     if (urlPath === "/api/update" && method === "POST") {
+      await fetchWeather();
       syncWeather(state);
       return sendJSON(200, state);
     }
@@ -214,19 +251,25 @@ const server = http.createServer(async function (req, res) {
 
 /////////////////////// startup //////////////////
 
-// sync weather for all users on boot
-USER_LIST.forEach(u => syncWeather(getState(u)));
+// fetch weather first, then start listening
+fetchWeather()
+  .catch(err => log("initial weather fetch failed: " + err.message))
+  .finally(() => {
+    syncAllLiveUsers();
 
-// auto-sync weather every 5 minutes (live mode users only)
-setInterval(function () {
-  USER_LIST.forEach(u => {
-    const s = getState(u);
-    if (s.mode === "live") syncWeather(s);
+    // refresh weather every 4 minutes
+    setInterval(async () => {
+      try {
+        await fetchWeather();
+        syncAllLiveUsers();
+      } catch (err) {
+        log("weather refresh error: " + err.message);
+      }
+    }, 4 * 60 * 1000);
+
+    server.listen(PORT, function () {
+      log("server running on port " + PORT);
+    });
   });
-}, 5 * 60 * 1000);
-
-server.listen(PORT, function () {
-  log("server running at http://localhost:" + PORT);
-});
 
 //////////////////////////////////////////////////
